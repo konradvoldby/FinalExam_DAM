@@ -1,0 +1,367 @@
+---
+title: "Final_project"
+author: "Kasper og Konrad"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=TRUE}
+# Chunk options: Hide code execution messages and warnings from the final report
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+# 0. Check and install missing packages dynamically if necessary
+required_packages <- c("tidyverse", "wbstats", "scales", "patchwork")
+new_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
+if(length(new_packages)) install.packages(new_packages)
+
+# 1. Load toolkits
+library(tidyverse)
+library(wbstats)
+library(scales)
+library(patchwork)
+```
+
+1.1 Data Gathering and Cleaning
+In this initial step, we isolate historical banana trade volumes from the UN FAOSTAT servers and cross-reference them with core development markers pulled directly via the World Bank API.
+
+```{r data}
+
+# 1. Override R's download time limit to allow up to 15 minutes for the file transfer
+options(timeout = 900)
+
+# 2. Define links and paths (Fixed: Stripped Markdown wrapper formatting)
+raw_url <- "https://bulks-faostat.fao.org/production/Trade_CropsLivestock_E_All_Data_(Normalized).zip"
+dest_file <- "fao_trade_data.zip"
+
+# 3. Automatically download the file natively if it doesn't exist yet
+if (!file.exists(dest_file)) {
+  download.file(url = raw_url, destfile = dest_file, mode = "wb")
+}
+
+# 4. Safely unzip and read the raw data into R completely intact
+raw_fao_data <- read_csv(unz(dest_file, "Trade_CropsLivestock_E_All_Data_(Normalized).csv"), 
+                         locale = locale(encoding = "latin1"))
+
+# 5. Extract and Clean the 3-Country baseline dataset
+# Fixed: Created this explicitly so full_dataset_3ch doesn't throw a missing object error
+fao_bananas_clean <- raw_fao_data %>%
+  filter(
+    `Area Code` %in% c(95, 89, 48),    # 95 = Honduras, 89 = Guatemala, 48 = Costa Rica
+    `Item Code` == 486,               # Bananas
+    `Element Code` == 5922            # Export Value (1000 USD)
+  ) %>%
+  mutate(banana_export_value = Value * 1000) %>%
+  select(year = Year, country = Area, banana_export_value)
+
+# Pull Prosperity Markers from World Bank API
+wb_indicators <- wb_data(
+  indicator = c("NY.GDP.PCAP.KD", "SP.DYN.LE00.IN"),
+  country = c("GT", "HN", "CR"), 
+  start_date = 1961,
+  end_date = 2024
+) %>%
+  mutate(year = as.numeric(date)) %>%
+  select(year, country, gdp_pc = NY.GDP.PCAP.KD, life_exp = SP.DYN.LE00.IN)
+
+# Merge datasets together
+full_dataset_3ch <- wb_indicators %>%
+  inner_join(fao_bananas_clean, by = c("year", "country"))
+```
+
+1.2 Creating Grahp 
+
+With the unified database active, we build three distinct graphical timelines using ggplot2 
+
+Panel 1 tracks raw banana export cash flows over time.
+Panel 2 monitors macroeconomic trajectory via purchasing capability indicators.
+Panel 3 tracks foundational human health progression.
+Rather than looking at these variables in isolation, we utilize the patchwork library to compile all three line graphs into a single, multi-tiered visual dashboard.
+The final consolidated layout is rendered to the screen and saved.
+
+```{r graph1}
+# Plot 1: Raw Banana Values
+p1 <- ggplot(full_dataset_3ch, aes(x = year, y = banana_export_value, color = country)) +
+  geom_line(linewidth = 1.2) + 
+  scale_y_continuous(labels = label_dollar(scale = 1e-6, suffix = "M")) +
+  scale_color_manual(values = c("Guatemala" = "#008080", "Honduras" = "#D95F02", "Costa Rica" = "#2CA02C")) +
+  labs(title = "1. Raw Banana Export Value", x = "Year", y = "Millions USD") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Plot 2: Macro-Growth GDP
+p2 <- ggplot(full_dataset_3ch, aes(x = year, y = gdp_pc, color = country)) +
+  geom_line(linewidth = 1.2) + 
+  scale_y_continuous(labels = label_dollar()) +
+  scale_color_manual(values = c("Guatemala" = "#008080", "Honduras" = "#D95F02", "Costa Rica" = "#2CA02C")) +
+  labs(title = "2. Macroeconomic Growth (GDP per Capita)", x = "Year", y = "Constant USD") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Plot 3: Human Wellbeing
+p3 <- ggplot(full_dataset_3ch, aes(x = year, y = life_exp, color = country)) +
+  geom_line(linewidth = 1.2) + 
+  scale_color_manual(values = c("Guatemala" = "#008080", "Honduras" = "#D95F02", "Costa Rica" = "#2CA02C")) +
+  labs(title = "3. Social Development (Life Expectancy)", x = "Year", y = "Years at Birth") +
+  theme_minimal()
+
+# Combine using patchwork
+final_slide <- (p1 | p2) / p3 + 
+  plot_layout(guides = "collect") + 
+  plot_annotation(
+    title = "The Political Economy of Agricultural Extraction in Central America",
+    subtitle = "Contrasting Commodity Export Boom Cycles Against Quality of Life Indicators (1961-Present)",
+    caption = "Data Sources: UN FAOSTAT & The World Bank API",
+    theme = theme(
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 11, face = "italic", hjust = 0.5, color = "grey30")
+    )
+  )
+
+# Output plot to document
+final_slide
+
+# Save asset
+ggsave("banana_economy_dashboard.png", plot = final_slide, width = 14, height = 8.5, dpi = 300)
+```
+
+2.1 Re-filtering and 4-Way Relational Join
+We expand our analytical framework to include Spain (Area Code 203 / ES).
+Because the UN and World Bank database schemas use distinct localized naming conventions for European territories, we apply a standardized case_when transformation block. This ensures that country strings match flawlessly across both systems prior to executing our inner relational merge.
+
+```{r load4countries}
+fao_bananas_4ch <- raw_fao_data %>%
+  filter(
+    `Area Code` %in% c(95, 89, 203, 48),  
+    `Item Code` == 486,               
+    `Element Code` == 5922            
+  ) %>%
+  mutate(
+    banana_export_value = Value * 1000,
+    country = case_when(
+      `Area Code` == 95  ~ "Honduras",
+      `Area Code` == 89  ~ "Guatemala",
+      `Area Code` == 203 ~ "Spain",
+      `Area Code` == 48  ~ "Costa Rica"
+    )
+  ) %>%
+  select(year = Year, country, banana_export_value)
+
+# Pull development markers for 4 countries
+wb_indicators_4ch <- wb_data(
+  indicator = c("NY.GDP.PCAP.KD", "SP.DYN.LE00.IN"),
+  country = c("GT", "HN", "ES", "CR"), 
+  start_date = 1961,
+  end_date = 2024
+) %>%
+  mutate(year = as.numeric(date)) %>%
+  mutate(country = case_when(
+    country == "Guatemala"  ~ "Guatemala",
+    country == "Honduras"   ~ "Honduras",
+    country == "Spain"      ~ "Spain",
+    country == "Costa Rica" ~ "Costa Rica"
+  )) %>%
+  select(year, country, gdp_pc = NY.GDP.PCAP.KD, life_exp = SP.DYN.LE00.IN)
+
+# Bind tables together
+full_dataset_4ch <- wb_indicators_4ch %>%
+  inner_join(fao_bananas_4ch, by = c("year", "country"))
+```
+
+2.2 4-Country Graph
+To ensure that adding a fourth nation doesn't compromise visual readability, we declare a custom, high-contrast color palette (country_palette).
+We rebuild the three tracking plots using our expanded four-nation dataset. We then recombine these revised graphs. and save the output. 
+
+```{r Graph4countries}
+# Color palette setups
+country_palette <- c(
+  "Guatemala"  = "#008080",
+  "Honduras"   = "#D95F02",
+  "Spain"      = "#984EA3",
+  "Costa Rica" = "#2CA02C"
+)
+
+# Plot 1: Raw Banana Values
+p1_4ch <- ggplot(full_dataset_4ch, aes(x = year, y = banana_export_value, color = country)) +
+  geom_line(linewidth = 1.2) + 
+  scale_y_continuous(labels = label_dollar(scale = 1e-6, suffix = "M")) +
+  scale_color_manual(values = country_palette) + 
+  labs(title = "1. Raw Banana Export Value", x = "Year", y = "Millions USD") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Plot 2: Macro-Growth GDP per Capita
+p2_4ch <- ggplot(full_dataset_4ch, aes(x = year, y = gdp_pc, color = country)) +
+  geom_line(linewidth = 1.2) + 
+  scale_y_continuous(labels = label_dollar()) +
+  scale_color_manual(values = country_palette) +
+  labs(title = "2. Macroeconomic Growth (GDP per Capita)", x = "Year", y = "Constant USD") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Plot 3: Human Wellbeing (Life Expectancy)
+p3_4ch <- ggplot(full_dataset_4ch, aes(x = year, y = life_exp, color = country)) +
+  geom_line(linewidth = 1.2) + 
+  scale_color_manual(values = country_palette) +
+  labs(title = "3. Social Development (Life Expectancy)", x = "Year", y = "Years at Birth") +
+  theme_minimal()
+
+# Composite layout
+final_slide_spain <- (p1_4ch | p2_4ch) / p3_4ch + 
+  plot_layout(guides = "collect") + 
+  plot_annotation(
+    title = "Comparative Transatlantic Political Economy: Banana Extraction vs Development",
+    subtitle = "Evaluating Post-1961 Agrarian Trade Flows, Macro-Growth, and Life Expectancy Markers",
+    caption = "Data Sources: UN FAOSTAT & The World Bank API",
+    theme = theme(
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 11, face = "italic", hjust = 0.5, color = "grey30")
+    )
+  )
+
+# Display
+final_slide_spain
+
+ggsave("banana_economy_dashboard.withspain.png", plot = final_slide_spain, width = 14, height = 8.5, dpi = 300)
+
+```
+
+2.3 Zooming in om the timeline
+
+To better examine the changes to the banana production of spain we zoom the graphs in to the time period of 1961-1985 and shrink the y-axis in the grahp displaing banana production. 
+
+
+```{r Graphzoom}
+# 1. Apply timeline crop and y-axis safeties
+p1_zoomed <- p1_4ch + coord_cartesian(
+  xlim = c(1961, 1985),
+  ylim = c(0, 100e6)
+)
+
+# 2. Wealth Matrix crop
+p2_zoomed <- p2_4ch + coord_cartesian(
+  xlim = c(1961, 1985)
+)
+
+# 3. Social Indicator crop
+p3_zoomed <- p3_4ch + coord_cartesian(
+  xlim = c(1961, 1985)
+) +
+  labs(subtitle = "Historical Lens Focus: The Cold War & Classic Agrarian Enclave Era")
+
+# Combined Zoomed Dashboard
+final_slide_zoomed <- (p1_zoomed | p2_zoomed) / p3_zoomed + 
+  plot_layout(guides = "collect") + 
+  plot_annotation(
+    title = "The Mid-Century Enclave Economy & Divergent Development Paths",
+    subtitle = "Comparing Agrarian Export Dynamics and Living Standards Across Four Nations (1961-1985)",
+    caption = "Data Sources: UN FAOSTAT Bulk Repository & The World Bank API",
+    theme = theme(
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 11, face = "italic", hjust = 0.5, color = "grey30"),
+    )
+  )
+
+# Display inside final report
+final_slide_zoomed
+
+ggsave("banana_economy_dashboard.4countries.1985.png", plot = final_slide_zoomed, width = 14, height = 8.5, dpi = 300)
+
+```
+
+3.1 
+To understand the ground-level impact of export-oriented farming, we expand our study to look at spatial trade-offs. We fetch live historical records from Our World in Data (OWID) to track two contrasting trends: **industrial efficiency** (monitored via banana tons produced per hectare) and **domestic food security assets** (monitored via arable hectares available per person).
+
+Because analyzing land space in tiny fractions of a hectare can be tough to visualize, we use a `mutate` transformation to convert arable land into square meters ($1\text{ ha} = 10,000\text{ m}^2$). This scale makes the real-world impact much more intuitive. Finally, we use an inner join to merge these data frames by country and year codes, keeping our focus squarely on the 1961–2024 window.
+
+```{r data2}
+# 1. Fetch Transnational Export Data (Banana Yields)
+banana_yields <- read_csv("https://ourworldindata.org/grapher/banana-yields.csv") %>%
+  select(Country = Entity, Code, Year, Banana_Yield = last_col()) %>%
+  filter(Country %in% c("Guatemala", "Honduras", "Costa Rica"))
+
+# 2. Fetch Domestic Food Footprint (Arable Hectares per Person)
+food_land_per_capita <- read_csv("https://ourworldindata.org/grapher/arable-land-use-per-person.csv") %>%
+  select(Country = Entity, Code, Year, Hectares_Per_Capita = last_col()) %>%
+  filter(Country %in% c("Guatemala", "Honduras", "Costa Rica")) %>%
+  # Convert hectares to square meters for an intuitive visualization scale
+  mutate(Sqm_Per_Capita = Hectares_Per_Capita * 10000)
+
+# Blend data frames cleanly across matching historical metrics
+dashboard_data <- banana_yields %>%
+  inner_join(food_land_per_capita, by = c("Country", "Code", "Year")) %>%
+  filter(Year >= 1961)
+
+```
+
+3.2 Stacking Spatial Imbalance Visualizations
+With our land metrics matched up, we create two stacked timeline graphs to highlight a classic economic puzzle.
+The Top Panel charts the rapid rise of industrial farming efficiency, tracking how banana yields skyrocketed as production grew more intense.
+The Bottom Panel maps a clear structural challenge: the steady decline of available arable land left for each citizen's domestic food needs.
+Using patchwork, we stack these panels directly on top of each other.The finished dashboard is printed directly into this report and saved as a high-resolution file.
+
+```{r Graphdomesticsqueeze}
+# Your explicit project color template mapping
+crop_colors <- c(
+  "Guatemala"  = "#008080",  # Teal
+  "Honduras"   = "#D95F02",  # Orange
+  "Spain"      = "#984EA3",  # Purple
+  "Costa Rica" = "#2CA02C"   # Green
+)
+
+# Plot 1: Transnational Industrial Efficiency (The Upper Trend)
+plot_top <- ggplot(dashboard_data, aes(x = Year, y = Banana_Yield, color = Country)) +
+  geom_line(linewidth = 1.3, alpha = 0.85) +
+  scale_color_manual(values = crop_colors) +
+  scale_x_continuous(limits = c(1961, 2024)) +
+  labs(
+    title = "1. Transnational Export Intensification",
+    subtitle = "Industrial Cash Crop Efficiency: Banana Yields (Tons / Hectare)",
+    y = "Tons per Hectare",
+    x = NULL
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none", plot.title = element_text(face = "bold"))
+
+# Plot 2: Domestic Subsistence Squeeze (The Downward Structural Trend)
+plot_bottom <- ggplot(dashboard_data, aes(x = Year, y = Sqm_Per_Capita, color = Country)) +
+  geom_line(linewidth = 1.3, alpha = 0.85) +
+  scale_color_manual(values = crop_colors) +
+  scale_x_continuous(limits = c(1961, 2024)) +
+  labs(
+    title = "2. The Domestic Food Footprint Squeeze",
+    subtitle = "Total Arable Cultivated Land Available per Citizen (Domestic Buffer)",
+    y = "Square Meters (m²) per Person",
+    x = "Year"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom", plot.title = element_text(face = "bold"))
+
+# Compile stacked graphic layout using patchwork
+compiled_slide <- plot_top / plot_bottom
+
+final_dashboard <- compiled_slide + 
+  plot_layout(guides = "collect") + 
+  plot_annotation(
+    title = "The Spatial Imbalance of Corporate Agriculture",
+    subtitle = "As Banana Production Efficiencies Tripled, Domestic Staple Land Footprints Collapsed",
+    caption = "Data Source: UN FAOSTAT / Our World in Data (OWID)",
+    theme = theme(
+      plot.title = element_text(size = 15, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 11, face = "italic", hjust = 0.5, color = "grey30")
+    )
+  )
+
+# Output final render to plot window
+final_dashboard
+
+# Save high-resolution digital image copy
+ggsave(
+  filename = "corporate_land_squeeze_dashboard.png", 
+  plot = final_dashboard, 
+  width = 13, 
+  height = 8.5, 
+  dpi = 300
+)
+
+```
+
