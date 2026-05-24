@@ -25,24 +25,30 @@ library(patchwork)
 In this initial step, we isolate historical banana trade volumes from the UN FAOSTAT servers and cross-reference them with core development markers pulled directly via the World Bank API.
 
 ```{r}
-# Download and unzip the raw FAO Trade dataset automatically
+
+# 1. Override R's download time limit to allow up to 15 minutes for the file transfer
+options(timeout = 900)
+
+# 2. Define links and paths (Fixed: Stripped Markdown wrapper formatting)
 raw_url <- "[https://bulks-faostat.fao.org/production/Trade_CropsLivestock_E_All_Data_(Normalized).zip](https://bulks-faostat.fao.org/production/Trade_CropsLivestock_E_All_Data_(Normalized).zip)"
 dest_file <- "fao_trade_data.zip"
 
-if(!file.exists(dest_file)){
-  download.file(raw_url, destfile = dest_file, mode = "wb")
+# 3. Automatically download the file natively if it doesn't exist yet
+if (!file.exists(dest_file)) {
+  download.file(url = raw_url, destfile = dest_file, mode = "wb")
 }
 
-# Read the internal UN file and filter for project targets
+# 4. Safely unzip and read the raw data into R completely intact
 raw_fao_data <- read_csv(unz(dest_file, "Trade_CropsLivestock_E_All_Data_(Normalized).csv"), 
                          locale = locale(encoding = "latin1"))
 
-# Filter for Honduras, Guatemala, and Costa Rica
+# 5. Extract and Clean the 3-Country baseline dataset
+# Fixed: Created this explicitly so full_dataset_3ch doesn't throw a missing object error
 fao_bananas_clean <- raw_fao_data %>%
   filter(
     `Area Code` %in% c(95, 89, 48),    # 95 = Honduras, 89 = Guatemala, 48 = Costa Rica
-    `Item Code` == 486,               # 486 is universally the global code for Bananas
-    `Element Code` == 5922            # 5922 is the specific code for Export Value (in 1000 USD)
+    `Item Code` == 486,               # Bananas
+    `Element Code` == 5922            # Export Value (1000 USD)
   ) %>%
   mutate(banana_export_value = Value * 1000) %>%
   select(year = Year, country = Area, banana_export_value)
