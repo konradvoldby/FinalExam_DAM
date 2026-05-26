@@ -13,10 +13,9 @@ This repository contains weekly assignments and the final project for the course
 
 | Folder | Contents |
 |--------|----------|
-| `Week_10` | Introduction to R: scripts, digital objects, and core principles |
-| `week11-kings` | Tidyverse: wrangling and plotting the Danish monarchs dataset |
-| `Week 12` | Plotting in R: Danish monarchs, Nordic homicides, and Gapminder |
-| `Week 13` | Sentiment analysis and interactive maps with Leaflet in R |
+| `Week 8` | Regex and openrefine introduction |
+| `Week 11` | Wrangling of the Danish Monarch dataset |
+| `Week 13` | Interactive maps with Leaflet in R |
 | `Week 17` | Digital archives reflection assignment: analysis of digital archival literacy|
 | `Final_project` | Final digital project – R script, data, and written report |
 
