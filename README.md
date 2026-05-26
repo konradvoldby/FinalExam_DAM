@@ -23,7 +23,7 @@ This repository contains weekly assignments and the final project for the course
 
 ## Final Project
 
-**Title:** *The Banana Industry of Latin America *
+**Title:** The Banana Industry of Latin America 
 
 **Research question:** 
 what effects TNC’s have had on the Banana industry in the countries Honduras, Guatemala and Costa Rica, how changes to the banana industry have affected the economic growth of these countries and whether the industry have had a positive effect on the development of these countries.  
