@@ -17,7 +17,7 @@ This repository contains weekly assignments and the final project for the course
 | `Week 11` | Wrangling of the Danish Monarch dataset |
 | `Week 13` | Interactive maps with Leaflet in R |
 | `Week 17` | Digital archives reflection assignment: analysis of digital archival literacy|
-| `Final_project` | Final digital project – R script, data, and written report |
+| `FinalProject` | Final digital project – R script, data, and written report |
 
 ---
 
